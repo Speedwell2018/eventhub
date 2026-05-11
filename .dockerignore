@@ -1,0 +1,23 @@
+# Git
+.git/
+.github/
+
+# Claude Code
+.claude/
+
+# Dependencies — installed inside the container via npm ci
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# App source — not needed, tests run against a remote URL
+frontend/
+backend/
+
+# Test output — mounted as volumes, not baked into the image
+playwright-report/
+test-results/
+
+# Docs and config not needed at runtime
+docs/
+*.md

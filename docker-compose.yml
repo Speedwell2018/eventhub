@@ -1,0 +1,13 @@
+services:
+  playwright:
+    build: .
+    environment:
+      # Target URL for the tests.
+      # Override to point at a locally running app:
+      #   BASE_URL=http://host.docker.internal:3000 docker compose run --rm playwright
+      BASE_URL: https://eventhub.rahulshettyacademy.com
+    volumes:
+      # Mount report and result dirs so they are accessible on the host
+      # after the container exits. Open playwright-report/index.html to view results.
+      - ./playwright-report:/app/playwright-report
+      - ./test-results:/app/test-results

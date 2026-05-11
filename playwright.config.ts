@@ -4,13 +4,12 @@ export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
   expect: { timeout: 5_000 },
-  workers: 3,          // shared user account — prevent cross-project state interference
+  workers: 1,          // shared user account — prevent cross-project state interference
   retries: 0,
   reporter: 'html',
 
   use: {
-    baseURL: 'http://localhost:3000',
-    headless: false,
+    baseURL: process.env.BASE_URL ?? 'http://localhost:3000',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     ...devices['Desktop Chrome'],

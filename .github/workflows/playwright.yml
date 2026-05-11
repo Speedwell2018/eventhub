@@ -77,6 +77,8 @@ jobs:
       # playwright-report/ automatically.
       - name: Run Playwright tests
         run: npx playwright test
+        env:
+          BASE_URL: https://eventhub.rahulshettyacademy.com
 
       # ── Upload HTML report ────────────────────────────────────────────────────
       # `if: always()` ensures the report is uploaded even when tests fail —

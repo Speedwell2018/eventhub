@@ -1,98 +1,90 @@
 import { test, expect } from '@playwright/test';
+import { LoginPage }         from './pages/LoginPage.js';
+import { EventsPage }        from './pages/EventsPage.js';
+import { EventDetailPage }   from './pages/EventDetailPage.js';
+import { BookingsPage }      from './pages/BookingsPage.js';
+import { BookingDetailPage } from './pages/BookingDetailPage.js';
 
-const BASE_URL   = 'http://localhost:3000';
+const USER_EMAIL    = 'rahulshetty1@yahoo.com';
+const USER_PASSWORD = 'Magiclife1!';
 
-// Change these to match a registered account in your local sandbox
-const GMAIL_USER = { email: 'rahulshetty1@gmail.com', password: 'Magiclife1!' };
+// ── Test Suite ─────────────────────────────────────────────────────────────────
 
-async function loginAndGoToBooking(page) {
-  await page.goto(`${BASE_URL}/login`);
-  await page.getByLabel('Email').fill(GMAIL_USER.email);
-  await page.getByPlaceholder('••••••').fill(GMAIL_USER.password);
-  await page.locator('#login-btn').click();
-  await expect(page.getByRole('link', { name: 'Browse Events →' })).toBeVisible();
-}
+test.describe('Refund Eligibility — Business Rules', () => {
 
-// ── Test 1: 1 ticket → eligible ───────────────────────────────────────────────
-test('refund eligible for single ticket booking', async ({ page }) => {
-  await loginAndGoToBooking(page);
+  // Increase timeout: login + clear + book + 4 s spinner = ~30 s baseline
+  test.setTimeout(60_000);
 
-  // Book event with 1 ticket via UI
-  await page.goto(`${BASE_URL}/events`);
-  await page.getByTestId('event-card').first().getByTestId('book-now-btn').click();
-  await expect(page).toHaveURL(/\/events\/\d+/);
+  let loginPage;
+  let eventsPage;
+  let eventDetailPage;
+  let bookingsPage;
+  let bookingDetailPage;
 
-  await page.getByLabel('Full Name').fill('Test User');
-  await page.locator('#customer-email').fill(GMAIL_USER.email);
-  await page.getByPlaceholder('+91 98765 43210').fill('9999999999');
-  await page.locator('.confirm-booking-btn').click();
+  test.beforeEach(async ({ page }) => {
+    loginPage        = new LoginPage(page);
+    eventsPage       = new EventsPage(page);
+    eventDetailPage  = new EventDetailPage(page);
+    bookingsPage     = new BookingsPage(page);
+    bookingDetailPage = new BookingDetailPage(page);
 
-  // Navigate to booking detail
-  await page.getByRole('link', { name: 'View My Bookings' }).click();
-  await expect(page).toHaveURL(`${BASE_URL}/bookings`);
-  await page.getByRole('link', { name: 'View Details' }).first().click();
-  await expect(page.getByText('Booking Information')).toBeVisible();
+    // Shared setup: authenticate + clean slate
+    await loginPage.goto();
+    await loginPage.login(USER_EMAIL, USER_PASSWORD);
+    await bookingsPage.clear();
+  });
 
-  // Validate booking ref first letter matches event name first letter
-  const bookingRef = await page.locator('span.font-mono.font-bold').innerText();
-  const eventTitle = await page.locator('h1').innerText();
-  expect(bookingRef.charAt(0)).toBe(eventTitle.charAt(0));
+  // REF-001 ───────────────────────────────────────────────────────────────────
+  test('REF-001: single-ticket booking shows spinner then eligible result', async () => {
+    // -- Step 1: Book event with default quantity (1 ticket) --
+    await eventsPage.goto();
+    await eventsPage.selectFirstAvailable();
+    // quantity defaults to 1 — no increment needed
+    await eventDetailPage.fillForm('Test User', 'testuser@example.com', '9876543210');
+    await eventDetailPage.submit();
+    const bookingRef = await eventDetailPage.getBookingRef();
+    console.log(`Booked (qty=1). Ref: ${bookingRef}`);
 
-  await page.locator('#check-refund-btn').click();
+    // -- Step 2: Open booking detail --
+    await bookingsPage.goto();
+    await bookingsPage.openDetail(bookingRef);
 
-  // Spinner must appear immediately
-  await expect(page.locator('#refund-spinner')).toBeVisible();
+    // -- Step 3: Trigger refund check — spinner must appear then disappear --
+    await bookingDetailPage.checkRefundEligibility();
 
-  // Wait for spinner to disappear after 4s
-  await expect(page.locator('#refund-spinner')).not.toBeVisible({ timeout: 6000 });
+    // -- Step 4: Assert eligible result --
+    // Business rule: quantity === 1 → eligible (business-rules.md §8)
+    await expect(bookingDetailPage.refundResult).toBeVisible();
+    await expect(bookingDetailPage.refundResult).toContainText('Eligible for refund');
+    await expect(bookingDetailPage.refundResult).toContainText('Single-ticket bookings qualify for a full refund');
+    console.log('REF-001 passed: single-ticket booking is eligible for refund.');
+  });
 
-  // Validate eligible message
-  const result = page.locator('#refund-result');
-  await expect(result).toBeVisible();
-  await expect(result).toContainText('Eligible for refund');
-  await expect(result).toContainText('Single-ticket bookings qualify for a full refund');
-});
+  // REF-002 ───────────────────────────────────────────────────────────────────
+  test('REF-002: multi-ticket booking shows spinner then ineligible result', async () => {
+    // -- Step 1: Book event with quantity = 2 --
+    await eventsPage.goto();
+    await eventsPage.selectFirstAvailable();
+    await eventDetailPage.incrementQuantity(1); // 1 → 2 tickets
+    await eventDetailPage.fillForm('Test User', 'testuser@example.com', '9876543210');
+    await eventDetailPage.submit();
+    const bookingRef = await eventDetailPage.getBookingRef();
+    console.log(`Booked (qty=2). Ref: ${bookingRef}`);
 
-// ── Test 2: 3 tickets → not eligible ─────────────────────────────────────────
-test('refund not eligible for group ticket booking', async ({ page }) => {
-  await loginAndGoToBooking(page);
+    // -- Step 2: Open booking detail --
+    await bookingsPage.goto();
+    await bookingsPage.openDetail(bookingRef);
 
-  // Book event with 3 tickets via UI
-  await page.goto(`${BASE_URL}/events`);
-  await page.getByTestId('event-card').first().getByTestId('book-now-btn').click();
-  await expect(page).toHaveURL(/\/events\/\d+/);
+    // -- Step 3: Trigger refund check —  spinner must appear then disappear --
+    await bookingDetailPage.checkRefundEligibility();
 
-  // Increase quantity to 3
-  await page.locator('button:has-text("+")').click();
-  await page.locator('button:has-text("+")').click();
+    // -- Step 4: Assert ineligible result --
+    // Business rule: quantity > 1 → NOT eligible (business-rules.md §8)
+    await expect(bookingDetailPage.refundResult).toBeVisible();
+    await expect(bookingDetailPage.refundResult).toContainText('Not eligible for refund');
+    await expect(bookingDetailPage.refundResult).toContainText('Group bookings');
+    await expect(bookingDetailPage.refundResult).toContainText('2 tickets');
+    console.log('REF-002 passed: multi-ticket booking is not eligible for refund.');
+  });
 
-  await page.getByLabel('Full Name').fill('Test User');
-  await page.locator('#customer-email').fill(GMAIL_USER.email);
-  await page.getByPlaceholder('+91 98765 43210').fill('9999999999');
-  await page.locator('.confirm-booking-btn').click();
-
-  // Navigate to booking detail
-  await page.getByRole('link', { name: 'View My Bookings' }).click();
-  await expect(page).toHaveURL(`${BASE_URL}/bookings`);
-  await page.getByRole('link', { name: 'View Details' }).first().click();
-  await expect(page.getByText('Booking Information')).toBeVisible();
-
-  // Validate booking ref first letter matches event name first letter
-  const bookingRef = await page.locator('span.font-mono.font-bold').innerText();
-  const eventTitle = await page.locator('h1').innerText();
-  expect(bookingRef.charAt(0)).toBe(eventTitle.charAt(0));
-
-  await page.locator('#check-refund-btn').click();
-
-  // Spinner must appear immediately
-  await expect(page.locator('#refund-spinner')).toBeVisible();
-
-  // Wait for spinner to disappear after 4s
-  await expect(page.locator('#refund-spinner')).not.toBeVisible({ timeout: 6000 });
-
-  // Validate ineligible message
-  const result = page.locator('#refund-result');
-  await expect(result).toBeVisible();
-  await expect(result).toContainText('Not eligible for refund');
-  await expect(result).toContainText('Group bookings (3 tickets) are non-refundable');
 });

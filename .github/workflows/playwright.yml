@@ -1,0 +1,90 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Playwright E2E Tests
+#
+# PURPOSE:
+#   Runs the full Playwright test suite against the live production app
+#   (https://eventhub.rahulshettyacademy.com) on every push to main.
+#   Uploads the Playwright HTML report as a downloadable artifact so test
+#   results are always available regardless of pass/fail outcome.
+#
+# TESTS:
+#   Three projects run serially (workers: 1 — shared user account):
+#     auth               → tests/auth.spec.js
+#     booking-management → tests/booking-management.spec.js
+#     refund-eligibility → tests/refund-eligibility.spec.js
+#
+# NO SECRETS REQUIRED:
+#   Tests run against the public production URL defined in playwright.config.ts.
+#   No local server setup is needed.
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Playwright E2E Tests
+
+on:
+  # Run on every push to main (post-deploy smoke/regression check)
+  push:
+    branches: [main]
+
+  # Allow manual runs from the GitHub Actions UI
+  workflow_dispatch:
+
+# Cancel any in-progress run for the same ref when a new push arrives.
+concurrency:
+  group: playwright-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '21.7.1'
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  playwright:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Node.js setup ─────────────────────────────────────────────────────────
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      # ── Install root dependencies ─────────────────────────────────────────────
+      # Installs @playwright/test from the root package.json.
+      # Only the root package is needed — no frontend/backend install required
+      # because tests run against the live production URL.
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Install Playwright browser ────────────────────────────────────────────
+      # Only Chromium is needed — playwright.config.ts uses devices['Desktop Chrome'].
+      # --with-deps installs the required OS-level libraries (libX11, libglib2, etc.)
+      # that Chromium needs to run on a headless Ubuntu runner.
+      - name: Install Playwright browser (Chromium)
+        run: npx playwright install chromium --with-deps
+
+      # ── Run tests ────────────────────────────────────────────────────────────
+      # Runs all three projects serially (workers: 1 set in playwright.config.ts).
+      # The HTML reporter is configured in playwright.config.ts and writes to
+      # playwright-report/ automatically.
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      # ── Upload HTML report ────────────────────────────────────────────────────
+      # `if: always()` ensures the report is uploaded even when tests fail —
+      # that is exactly when you most need it to diagnose failures.
+      # The report is downloadable from the Actions run → Artifacts section.
+      - name: Upload Playwright HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 30
